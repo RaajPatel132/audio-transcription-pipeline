@@ -1,6 +1,7 @@
-.PHONY: setup lint format test test-integration fetch-model demo-mock demo serve serve-mock demo-api long-sample benchmark samples clean
+.PHONY: setup lint format test test-integration fetch-model demo-mock demo serve serve-mock demo-api long-sample benchmark docker-test docker-build docker-run docker-demo samples clean
 
 DEMO_CLIP = samples/garden.mp3
+IMAGE = audio-transcription-pipeline
 SERVE = uv run uvicorn transcription.api:create_app --factory --host 127.0.0.1 --port 8000
 
 setup:
@@ -46,6 +47,18 @@ long-sample:
 benchmark:
 	test -f data/long-sample.mp3 || $(MAKE) long-sample
 	uv run python scripts/benchmark.py
+
+docker-test:
+	docker build --target test -t $(IMAGE):test .
+
+docker-build:
+	docker build -t $(IMAGE) .
+
+docker-run:
+	docker run --rm -p 8000:8000 -v transcription-data:/data --stop-timeout 40 --name transcription $(IMAGE)
+
+docker-demo:
+	docker run --rm --network none $(IMAGE) transcribe $(DEMO_CLIP) --format srt
 
 samples:
 	uv run python scripts/make_samples.py
