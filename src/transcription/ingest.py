@@ -28,6 +28,7 @@ CONTAINERS = {
 }
 
 _MB = 1024 * 1024
+_SUPPORTED = ", ".join(sorted(set(CONTAINERS.values())))
 
 
 def probe(path: Path, settings: Settings) -> AudioInfo:
@@ -102,14 +103,16 @@ def _open_audio(path: Path) -> Iterator[tuple[InputContainer, AudioStream]]:
             container = av.open(handle, mode="r")
         except av.error.FFmpegError as exc:
             raise PipelineError(
-                ErrorCode.UNSUPPORTED_FORMAT, f"{path.name} is not a recognised audio file"
+                ErrorCode.UNSUPPORTED_FORMAT,
+                f"{path.name} is not a recognised audio file (supported: {_SUPPORTED})",
             ) from exc
 
         with container:
             if container.format.name not in CONTAINERS:
                 raise PipelineError(
                     ErrorCode.UNSUPPORTED_FORMAT,
-                    f"{path.name} is a {container.format.long_name} file, which is not supported",
+                    f"{path.name} is a {container.format.long_name} file, which is not "
+                    f"supported (supported: {_SUPPORTED})",
                 )
             stream = container.streams.best("audio")
             if not isinstance(stream, AudioStream):

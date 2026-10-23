@@ -117,6 +117,31 @@ def test_files_that_are_not_audio_are_rejected(tmp_path: Path, content: bytes, c
     assert excinfo.value.code == code
 
 
+SUPPORTED = "supported: aac, aiff, flac, matroska, mp3, mp4, ogg, wav"
+
+
+def test_unrecognised_content_is_rejected_with_the_supported_formats(tmp_path: Path) -> None:
+    letter = tmp_path / "speech.mp3"
+    letter.write_text("This is a letter, not a recording.\n" * 50)
+
+    with pytest.raises(PipelineError, match="not a recognised audio file") as excinfo:
+        probe(letter, SETTINGS)
+
+    assert SUPPORTED in str(excinfo.value)
+
+
+def test_a_known_container_outside_the_allow_list_is_rejected(tmp_path: Path) -> None:
+    source = encode(tmp_path / "clip.avi", tone(1.0), codec="pcm_s16le", container="avi")
+
+    with pytest.raises(PipelineError, match="AVI") as excinfo:
+        probe(source, SETTINGS)
+    with pytest.raises(PipelineError):
+        normalise(source, tmp_path / "out.wav", SETTINGS)
+
+    assert excinfo.value.code == ErrorCode.UNSUPPORTED_FORMAT
+    assert SUPPORTED in str(excinfo.value)
+
+
 def test_container_without_audio_is_rejected(tmp_path: Path) -> None:
     video = write_video_only_mp4(tmp_path / "clip.mp4")
 
