@@ -3,7 +3,6 @@
 They are skipped when the model has not been downloaded, so they never reach the network.
 """
 
-import re
 import subprocess
 import sys
 from itertools import pairwise
@@ -13,6 +12,7 @@ import pytest
 from faster_whisper.utils import download_model
 
 from transcription.config import Settings
+from transcription.metrics import word_error_rate, words
 from transcription.pipeline import transcribe_file
 from transcription.transcribers import build_transcriber
 
@@ -28,22 +28,6 @@ def _model_is_downloaded() -> None:
         download_model(MODEL, local_files_only=True)
     except Exception:
         pytest.skip(f"{MODEL} is not downloaded; run `make test-integration`")
-
-
-def words(text: str) -> list[str]:
-    return re.findall(r"[a-z']+", text.lower())
-
-
-def word_error_rate(reference: str, hypothesis: str) -> float:
-    ref, hyp = words(reference), words(hypothesis)
-    previous = list(range(len(hyp) + 1))
-    for i, ref_word in enumerate(ref, start=1):
-        current = [i]
-        for j, hyp_word in enumerate(hyp, start=1):
-            cost = 0 if ref_word == hyp_word else 1
-            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost))
-        previous = current
-    return previous[-1] / len(ref)
 
 
 def test_sample_clip_contains_the_spoken_words(tmp_path: Path) -> None:
