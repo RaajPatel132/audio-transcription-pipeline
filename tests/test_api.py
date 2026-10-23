@@ -15,7 +15,7 @@ from fakes import Spy, wait_for
 from transcription import api
 from transcription.api import Service, create_app
 from transcription.config import Settings
-from transcription.errors import ErrorCode
+from transcription.errors import ErrorCode, PipelineError
 from transcription.schema import Transcript
 
 JOBS = "/v1/transcriptions"
@@ -189,6 +189,20 @@ def test_a_repeat_while_the_first_is_still_queued_returns_the_same_job(
     assert again.json()["id"] == first.json()["id"]
 
 
+def test_a_lost_race_between_identical_uploads_returns_the_winners_job(
+    make_client: MakeClient, speech: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = make_client(start_workers=False)
+    winner = upload(client, speech).json()
+    monkeypatch.setattr(service_of(client).store, "find_active", lambda key: None)
+
+    loser = upload(client, speech)
+
+    assert loser.status_code == 200
+    assert loser.json()["id"] == winner["id"]
+    assert [p.name for p in (tmp_path / "service" / "jobs").iterdir()] == [winner["id"]]
+
+
 def test_the_format_is_found_by_content_not_by_name(make_client: MakeClient, speech: Path) -> None:
     client = make_client()
 
@@ -320,6 +334,17 @@ def test_the_model_is_loaded_before_requests_are_served(make_client: MakeClient)
     assert spy.warm_ups == 1
 
 
+def test_the_server_refuses_to_start_without_its_model(tmp_path: Path) -> None:
+    class Missing(Spy):
+        def warm_up(self) -> None:
+            raise PipelineError(ErrorCode.MODEL_UNAVAILABLE, "no model on disk")
+
+    app = create_app(Settings(data_dir=tmp_path / "service"), transcriber=Missing())
+
+    with pytest.raises(PipelineError, match="no model on disk"), TestClient(app):
+        pass
+
+
 def test_health_reports_the_model_and_the_queue(
     make_client: MakeClient, speech: Path, other_speech: Path
 ) -> None:
@@ -334,6 +359,19 @@ def test_health_reports_the_model_and_the_queue(
         "status": "ok",
         "model": "spy",
         "jobs": {"queued": 2, "processing": 0},
+    }
+
+
+def test_the_api_document_describes_every_route(make_client: MakeClient) -> None:
+    response = make_client().get("/openapi.json")
+
+    assert response.status_code == 200
+    assert set(response.json()["paths"]) == {
+        JOBS,
+        f"{JOBS}/{{job_id}}",
+        f"{JOBS}/{{job_id}}/result",
+        f"{JOBS}/{{job_id}}/retry",
+        "/healthz",
     }
 
 

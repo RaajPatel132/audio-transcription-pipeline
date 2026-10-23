@@ -1,6 +1,7 @@
-.PHONY: setup lint format test test-integration fetch-model demo-mock demo long-sample samples clean
+.PHONY: setup lint format test test-integration fetch-model demo-mock demo serve serve-mock demo-api long-sample samples clean
 
 DEMO_CLIP = samples/garden.mp3
+SERVE = uv run uvicorn transcription.api:create_app --factory --host 127.0.0.1 --port 8000
 
 setup:
 	uv sync
@@ -29,6 +30,15 @@ demo-mock:
 
 demo:
 	uv run transcribe $(DEMO_CLIP) --format srt
+
+serve:
+	$(SERVE)
+
+serve-mock:
+	TRANSCRIBE_MOCK=1 $(SERVE)
+
+demo-api:
+	uv run python scripts/api_demo.py $(DEMO_CLIP) --format srt
 
 long-sample:
 	uv run python scripts/make_long_sample.py
