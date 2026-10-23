@@ -27,6 +27,9 @@ FORMATS = [
     pytest.param("flac", "flac", "flac", id="flac"),
     pytest.param("libopus", "ogg", "ogg", id="ogg"),
     pytest.param("aac", "ipod", "mp4", id="m4a"),
+    pytest.param("aac", "adts", "aac", id="aac"),
+    pytest.param("pcm_s16be", "aiff", "aiff", id="aiff"),
+    pytest.param("libopus", "webm", "matroska", id="webm"),
 ]
 
 
