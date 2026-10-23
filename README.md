@@ -8,7 +8,7 @@ Contents: [Quick start](#quick-start) · [What you get](#what-you-get) · [How i
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/) (it fetches Python 3.12 if you do not have it) or Docker. Nothing else: no ffmpeg, no GPU, no key. The only network use is a one-time download of the Whisper model (141 MB for the default `base.en`).
+You need [uv](https://docs.astral.sh/uv/) (it fetches Python 3.12 if you do not have it) or Docker. Nothing else: no ffmpeg, no GPU, no key. The only network use is a one-time download of the Whisper model (about 140 MB for the default `base.en`).
 
 Local:
 
@@ -323,7 +323,7 @@ src/transcription/
   retry.py  metrics.py         backoff helper, word error rate
   jobs.py  store.py  files.py  runner, SQLite tables, per-job folders
   problems.py  errors.py  config.py  schema.py  log.py
-tests/                         one file per module, integration/ for the real model
+tests/                         unit tests by module, integration/ for the real model
 scripts/                       samples, long sample, model fetch, API demo, benchmark
 samples/                       short clips of synthetic speech, with their text
 Dockerfile  .github/workflows/ci.yml  Makefile
