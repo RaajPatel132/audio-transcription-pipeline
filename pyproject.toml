@@ -19,7 +19,7 @@ transcribe = "transcription.cli:main"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
+    "httpx2>=2.16,<3",
     "mypy>=1.10",
     "pytest>=8",
     "ruff>=0.5",
