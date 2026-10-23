@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from transcription.config import Settings
 from transcription.errors import PipelineError
 from transcription.export import Format, render
-from transcription.log import configure_logging, job_id
+from transcription.log import bind_job, configure_logging
 from transcription.pipeline import transcribe_file
 from transcription.transcribers import build_transcriber
 
@@ -30,11 +30,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = _load_settings(args, parser)
 
     configure_logging("DEBUG" if args.verbose else "INFO")
-    token = job_id.set(secrets.token_hex(3))
-    try:
+    with bind_job(secrets.token_hex(3)):
         return _run(args, settings)
-    finally:
-        job_id.reset(token)
 
 
 def _run(args: argparse.Namespace, settings: Settings) -> int:

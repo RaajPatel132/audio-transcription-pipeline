@@ -5,10 +5,13 @@ description = "Turns audio files into timestamped transcripts (JSON, SRT, WebVTT
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.161,<1",
     "faster-whisper>=1.2,<2",
     "numpy>=2,<3",
     "pydantic>=2.7,<3",
     "pydantic-settings>=2.3,<3",
+    "python-multipart>=0.0.32,<1",
+    "uvicorn>=0.54,<1",
 ]
 
 [project.scripts]
@@ -16,6 +19,7 @@ transcribe = "transcription.cli:main"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "mypy>=1.10",
     "pytest>=8",
     "ruff>=0.5",

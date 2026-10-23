@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 
 # Set once per job (or CLI run); every log line then carries it without passing it around.
@@ -12,6 +14,15 @@ class _JobIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.job_id = job_id.get()
         return True
+
+
+@contextmanager
+def bind_job(value: str) -> Iterator[None]:
+    token = job_id.set(value)
+    try:
+        yield
+    finally:
+        job_id.reset(token)
 
 
 def configure_logging(level: str | int = "INFO") -> None:

@@ -1,9 +1,12 @@
+from typing import Any
+
 import numpy as np
 import pytest
 
 from audio_factory import silence, tone, tones_and_gaps
 from transcription.config import Settings
-from transcription.transcribers import build_transcriber
+from transcription.errors import ErrorCode, PipelineError
+from transcription.transcribers import build_transcriber, whisper
 from transcription.transcribers.fake import FakeTranscriber
 
 
@@ -45,3 +48,35 @@ def test_the_same_audio_gives_the_same_result() -> None:
 
 def test_factory_builds_the_fake_for_mock_runs() -> None:
     assert build_transcriber(Settings(), mock=True).name == "fake"
+
+
+def test_warm_up_loads_the_model_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    loaded: list[str] = []
+
+    class StubModel:
+        def __init__(self, name: str, **_: Any) -> None:
+            loaded.append(name)
+
+    monkeypatch.setattr(whisper, "WhisperModel", StubModel)
+    transcriber = whisper.FasterWhisperTranscriber(Settings(model="tiny.en"))
+
+    transcriber.warm_up()
+    transcriber.warm_up()
+
+    assert loaded == ["tiny.en"]
+
+
+def test_warm_up_reports_a_missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*_: Any, **__: Any) -> None:
+        raise OSError("no such model")
+
+    monkeypatch.setattr(whisper, "WhisperModel", missing)
+
+    with pytest.raises(PipelineError) as excinfo:
+        whisper.FasterWhisperTranscriber(Settings()).warm_up()
+
+    assert excinfo.value.code == ErrorCode.MODEL_UNAVAILABLE
+
+
+def test_the_fake_has_nothing_to_warm_up() -> None:
+    fake().warm_up()

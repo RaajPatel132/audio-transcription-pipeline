@@ -22,6 +22,9 @@ class FasterWhisperTranscriber:
         self._model: WhisperModel | None = None
         self._lock = threading.Lock()
 
+    def warm_up(self) -> None:
+        self._load()
+
     def transcribe(self, samples: NDArray[np.float32], language: str | None) -> ChunkResult:
         model = self._load()
         # VAD skips non-speech, the main guard against text invented over silence. Not feeding

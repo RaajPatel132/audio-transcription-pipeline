@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Self
@@ -7,6 +9,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Internal audio format: 16 kHz mono 16-bit PCM, which is what Whisper works on anyway.
 SAMPLE_RATE = 16_000
+
+# The settings that change the words or the timestamps. The rest only change speed or limits.
+_OUTPUT_FIELDS = {
+    "model",
+    "compute_type",
+    "beam_size",
+    "chunk_min_s",
+    "chunk_max_s",
+    "frame_ms",
+    "quiet_window_ms",
+    "silence_db",
+    "mock",
+}
 
 
 class Settings(BaseSettings):
@@ -36,6 +51,13 @@ class Settings(BaseSettings):
 
     model_dir: Path | None = None
 
+    data_dir: Path = Path("data/service")
+    job_workers: int = Field(1, ge=1)
+    max_queued_jobs: int = Field(20, ge=1)
+    max_job_attempts: int = Field(3, ge=1)
+    shutdown_grace_s: float = Field(30, gt=0)
+    mock: bool = False
+
     @model_validator(mode="after")
     def _check_chunk_bounds(self) -> Self:
         if self.chunk_min_s >= self.chunk_max_s:
@@ -59,3 +81,11 @@ class Settings(BaseSettings):
     def forced_language(self) -> str | None:
         """English-only models always run in English; for the rest `None` means detect."""
         return self.language or ("en" if self.model.endswith(".en") else None)
+
+    @property
+    def output_fingerprint(self) -> str:
+        """Identifies the settings that shape a transcript, so equal audio with equal
+        fingerprints always gives the same job."""
+        values = self.model_dump(include=_OUTPUT_FIELDS) | {"language": self.forced_language}
+        payload = json.dumps(values, sort_keys=True)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]

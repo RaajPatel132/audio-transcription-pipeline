@@ -1,11 +1,10 @@
-import threading
 from pathlib import Path
 
 import numpy as np
 import pytest
-from numpy.typing import NDArray
 
-from audio_factory import silence, tone, tones_and_gaps, write_wav
+from audio_factory import silence, tone, write_wav
+from fakes import Spy
 from transcription.chunker import plan_chunks
 from transcription.config import Settings
 from transcription.errors import ErrorCode, PipelineError
@@ -13,32 +12,8 @@ from transcription.log import job_id
 from transcription.pipeline import ChunkStore, MemoryChunkStore, ProgressCallback, transcribe_file
 from transcription.schema import ChunkInfo, Transcript
 from transcription.transcribers import ChunkResult
-from transcription.transcribers.fake import FakeTranscriber
 
 SETTINGS = Settings(chunk_min_s=30, chunk_max_s=60, retry_base_s=0, retry_max_s=0)
-
-
-class Spy:
-    """Wraps a transcriber to count calls, and optionally to fail or to record the job ID."""
-
-    name = "spy"
-
-    def __init__(self, fail_first: int = 0, error: Exception | None = None) -> None:
-        self._inner = FakeTranscriber(SETTINGS)
-        self._fail_first = fail_first
-        self._error = error or RuntimeError("temporary glitch")
-        self._lock = threading.Lock()
-        self.calls = 0
-        self.job_ids: set[str] = set()
-
-    def transcribe(self, samples: NDArray[np.float32], language: str | None) -> ChunkResult:
-        with self._lock:
-            self.calls += 1
-            failing = self.calls <= self._fail_first
-        self.job_ids.add(job_id.get())
-        if failing:
-            raise self._error
-        return self._inner.transcribe(samples, language)
 
 
 @pytest.fixture
@@ -46,13 +21,6 @@ def work_dir(tmp_path: Path) -> Path:
     path = tmp_path / "work"
     path.mkdir()
     return path
-
-
-@pytest.fixture(scope="module")
-def long_audio(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, list[tuple[float, float]]]:
-    """Six minutes: forty 8-second tones, each followed by a 1.2-second gap."""
-    samples, spans = tones_and_gaps(tone_s=8, gap_s=1.2, count=40)
-    return write_wav(tmp_path_factory.mktemp("audio") / "long.wav", samples), spans
 
 
 def run(

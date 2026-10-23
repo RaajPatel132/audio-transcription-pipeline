@@ -10,6 +10,7 @@ class ErrorCode(StrEnum):
     AUDIO_TOO_LONG = "audio_too_long"
     MODEL_UNAVAILABLE = "model_unavailable"
     TRANSCRIPTION_FAILED = "transcription_failed"
+    INTERNAL_ERROR = "internal_error"
 
 
 # The caller sent something we cannot process. Everything else is a failure on our side.

@@ -22,6 +22,7 @@ def test_error_keeps_message_and_stable_code() -> None:
         (ErrorCode.AUDIO_TOO_LONG, True),
         (ErrorCode.MODEL_UNAVAILABLE, False),
         (ErrorCode.TRANSCRIPTION_FAILED, False),
+        (ErrorCode.INTERNAL_ERROR, False),
     ],
 )
 def test_bad_input_classification(code: ErrorCode, bad_input: bool) -> None:

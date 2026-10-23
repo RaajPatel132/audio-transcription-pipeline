@@ -21,6 +21,9 @@ class FakeTranscriber:
         self._silence_db = settings.silence_db
         self._max_gap = max(1, settings.quiet_window_ms // settings.frame_ms)
 
+    def warm_up(self) -> None:
+        return None
+
     def transcribe(self, samples: NDArray[np.float32], language: str | None) -> ChunkResult:
         loud = frame_levels_db(samples, self._frame_len) > self._silence_db
         segments = [

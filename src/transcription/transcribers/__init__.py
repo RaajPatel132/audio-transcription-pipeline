@@ -20,6 +20,10 @@ class ChunkResult(BaseModel):
 class Transcriber(Protocol):
     name: str
 
+    def warm_up(self) -> None:
+        """Load the model now, so a missing model fails at startup and not on the first job."""
+        ...
+
     def transcribe(self, samples: NDArray[np.float32], language: str | None) -> ChunkResult:
         """Transcribe 16 kHz mono samples. `language` of `None` means detect it."""
         ...
