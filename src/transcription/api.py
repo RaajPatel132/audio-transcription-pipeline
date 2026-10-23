@@ -20,7 +20,7 @@ from transcription.jobs import JobRunner
 from transcription.log import bind_job, configure_logging
 from transcription.problems import ApiCode, ApiProblem, install_handlers
 from transcription.schema import Transcript
-from transcription.store import DuplicateJob, Job, JobState, JobStore
+from transcription.store import DeleteOutcome, DuplicateJob, Job, JobState, JobStore
 from transcription.transcribers import Transcriber, build_transcriber
 
 logger = logging.getLogger(__name__)
@@ -145,6 +145,43 @@ def get_result(
     return Response(render(Transcript.model_validate_json(text), fmt), media_type=MEDIA_TYPES[fmt])
 
 
+@transcriptions.delete("/{job_id}", status_code=204)
+def delete_transcription(job_id: str, service: ServiceDep) -> Response:
+    match service.store.delete(job_id):
+        case DeleteOutcome.NOT_FOUND:
+            raise _not_found(job_id)
+        case DeleteOutcome.RUNNING:
+            raise ApiProblem(
+                409,
+                ApiCode.JOB_RUNNING,
+                "the job is being processed; delete it once it has finished",
+            )
+    service.files.remove_job(job_id)
+    with bind_job(job_id):
+        logger.info("deleted")
+    return Response(status_code=204)
+
+
+@transcriptions.post("/{job_id}/retry", status_code=202, response_model=JobView)
+def retry_transcription(job_id: str, response: Response, service: ServiceDep) -> JobView:
+    job = _get_or_404(service, job_id)
+    try:
+        requeued = service.store.retry(job.id)
+    except DuplicateJob as duplicate:
+        raise ApiProblem(
+            409,
+            ApiCode.JOB_NOT_RETRYABLE,
+            f"an identical job already exists: {duplicate.existing.id}",
+        ) from duplicate
+    if requeued is None:
+        raise ApiProblem(409, ApiCode.JOB_NOT_RETRYABLE, _why_not_retryable(job))
+    with bind_job(job.id):
+        logger.info("retry requested")
+    service.runner.notify()
+    response.headers["Location"] = f"{PREFIX}/{job.id}"
+    return JobView.of(requeued)
+
+
 @health.get("/healthz", response_model=Health)
 def healthz(service: ServiceDep) -> Health:
     return Health(
@@ -249,5 +286,15 @@ def _receive(upload: UploadFile, path: Path, settings: Settings) -> tuple[int, s
 def _get_or_404(service: Service, job_id: str) -> Job:
     job = service.store.get(job_id)
     if job is None:
-        raise ApiProblem(404, ApiCode.NOT_FOUND, f"no transcription with id {job_id}")
+        raise _not_found(job_id)
     return job
+
+
+def _not_found(job_id: str) -> ApiProblem:
+    return ApiProblem(404, ApiCode.NOT_FOUND, f"no transcription with id {job_id}")
+
+
+def _why_not_retryable(job: Job) -> str:
+    if job.state != JobState.FAILED:
+        return f"only a failed job can be retried; this one is {job.state}"
+    return f"the job failed because of its input ({job.error_code}); upload a corrected file"

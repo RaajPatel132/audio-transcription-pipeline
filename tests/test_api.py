@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from pathlib import Path
@@ -6,13 +7,15 @@ from typing import Any
 import httpx2
 import numpy as np
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from audio_factory import silence, tone, write_wav
 from fakes import Spy, wait_for
 from transcription import api
-from transcription.api import create_app
+from transcription.api import Service, create_app
 from transcription.config import Settings
+from transcription.errors import ErrorCode
 from transcription.schema import Transcript
 
 JOBS = "/v1/transcriptions"
@@ -55,6 +58,13 @@ def upload(
     client: TestClient, path: Path, name: str | None = None, content_type: str = "audio/wav"
 ) -> httpx2.Response:
     return client.post(JOBS, files={"file": (name or path.name, path.read_bytes(), content_type)})
+
+
+def service_of(client: TestClient) -> Service:
+    app = client.app
+    assert isinstance(app, FastAPI)
+    service: Service = app.state.service
+    return service
 
 
 def state_of(client: TestClient, job_id: str) -> str:
@@ -337,3 +347,115 @@ def test_the_accepted_line_carries_the_job_id(
     accepted = [line for line in capsys.readouterr().err.splitlines() if "accepted" in line]
     assert len(accepted) == 1
     assert f"job={job_id} " in accepted[0]
+
+
+def test_a_completed_job_can_be_deleted_with_everything_it_owns(
+    make_client: MakeClient, speech: Path, tmp_path: Path
+) -> None:
+    client = make_client()
+    job_id = upload(client, speech).json()["id"]
+    wait_for_state(client, job_id, "completed")
+    assert (tmp_path / "service" / "jobs" / job_id).is_dir()
+
+    assert client.delete(f"{JOBS}/{job_id}").status_code == 204
+
+    assert_problem(client.get(f"{JOBS}/{job_id}"), 404, "not_found")
+    assert_problem(client.get(f"{JOBS}/{job_id}/result"), 404, "not_found")
+    assert not (tmp_path / "service" / "jobs" / job_id).exists()
+
+
+def test_deleting_a_job_frees_the_audio_to_be_submitted_again(
+    make_client: MakeClient, speech: Path
+) -> None:
+    client = make_client(start_workers=False)
+    first = upload(client, speech).json()["id"]
+
+    assert client.delete(f"{JOBS}/{first}").status_code == 204
+    again = upload(client, speech)
+
+    assert again.status_code == 202
+    assert again.json()["id"] != first
+
+
+def test_deleting_an_unknown_job_is_404(make_client: MakeClient) -> None:
+    assert_problem(make_client().delete(f"{JOBS}/nope"), 404, "not_found")
+
+
+def test_a_running_job_cannot_be_deleted(make_client: MakeClient, speech: Path) -> None:
+    gate = threading.Event()
+    spy = Spy(gate=gate)
+    client = make_client(spy)
+    job_id = upload(client, speech).json()["id"]
+    try:
+        wait_for(spy.started.is_set)
+
+        assert_problem(client.delete(f"{JOBS}/{job_id}"), 409, "job_running")
+        assert state_of(client, job_id) == "processing"
+    finally:
+        gate.set()
+
+    wait_for_state(client, job_id, "completed")
+    assert client.delete(f"{JOBS}/{job_id}").status_code == 204
+
+
+def test_a_failed_job_can_be_retried_once_the_transcriber_recovers(
+    make_client: MakeClient, speech: Path
+) -> None:
+    client = make_client(Spy(fail_first=3), retry_attempts=3)
+    job_id = upload(client, speech).json()["id"]
+    failed = wait_for_state(client, job_id, "failed")
+    assert failed["error"]["code"] == "transcription_failed"
+    assert_problem(client.get(f"{JOBS}/{job_id}/result"), 409, "job_not_completed")
+
+    response = client.post(f"{JOBS}/{job_id}/retry")
+
+    assert response.status_code == 202
+    assert response.headers["location"] == f"{JOBS}/{job_id}"
+    done = wait_for_state(client, job_id, "completed")
+    assert done["error"] is None
+    assert done["attempts"] == 1
+    assert client.get(f"{JOBS}/{job_id}/result").status_code == 200
+
+
+def test_only_a_failed_job_can_be_retried(make_client: MakeClient, speech: Path) -> None:
+    client = make_client(start_workers=False)
+    job_id = upload(client, speech).json()["id"]
+
+    body = assert_problem(client.post(f"{JOBS}/{job_id}/retry"), 409, "job_not_retryable")
+
+    assert "queued" in body["detail"]
+
+
+def test_a_job_that_failed_on_bad_input_is_not_retried(
+    make_client: MakeClient, speech: Path
+) -> None:
+    client = make_client(start_workers=False)
+    job_id = upload(client, speech).json()["id"]
+    store = service_of(client).store
+    store.claim_next()
+    store.fail(job_id, ErrorCode.CORRUPT_AUDIO, "damaged part-way through")
+
+    body = assert_problem(client.post(f"{JOBS}/{job_id}/retry"), 409, "job_not_retryable")
+
+    assert "corrupt_audio" in body["detail"]
+    assert state_of(client, job_id) == "failed"
+
+
+def test_a_failed_job_is_not_retried_beside_an_identical_live_one(
+    make_client: MakeClient, speech: Path
+) -> None:
+    client = make_client(start_workers=False)
+    old = upload(client, speech).json()["id"]
+    store = service_of(client).store
+    store.claim_next()
+    store.fail(old, ErrorCode.TRANSCRIPTION_FAILED, "gave up")
+    replacement = upload(client, speech)
+    assert replacement.status_code == 202
+
+    body = assert_problem(client.post(f"{JOBS}/{old}/retry"), 409, "job_not_retryable")
+
+    assert replacement.json()["id"] in body["detail"]
+
+
+def test_retrying_an_unknown_job_is_404(make_client: MakeClient) -> None:
+    assert_problem(make_client().post(f"{JOBS}/nope/retry"), 404, "not_found")
